@@ -350,9 +350,47 @@ function parseMermaidToElements(
     levels.get(d)!.push(id);
   }
 
+  // Build parent map for crossing minimization
+  const parents = new Map<string, string[]>();
+  for (const id of nodeOrder) parents.set(id, []);
+  for (const e of edges) {
+    const p = parents.get(e.to);
+    if (p && !p.includes(e.from)) p.push(e.from);
+  }
+
+  // Crossing minimization: barycenter heuristic
+  // Order nodes at each level by the average X-index of their parents
+  const sortedLvls = [...levels.entries()].sort((a, b) => a[0] - b[0]);
+  const nodeIndex = new Map<string, number>(); // track horizontal index
+
+  // Assign initial order for level 0
+  if (sortedLvls.length > 0) {
+    for (let i = 0; i < sortedLvls[0][1].length; i++) {
+      nodeIndex.set(sortedLvls[0][1][i], i);
+    }
+  }
+
+  // For each subsequent level, sort by barycenter of parents
+  for (let l = 1; l < sortedLvls.length; l++) {
+    const ids = sortedLvls[l][1];
+    ids.sort((a, b) => {
+      const aParents = parents.get(a) ?? [];
+      const bParents = parents.get(b) ?? [];
+      const aAvg = aParents.length > 0
+        ? aParents.reduce((s, p) => s + (nodeIndex.get(p) ?? 0), 0) / aParents.length
+        : 0;
+      const bAvg = bParents.length > 0
+        ? bParents.reduce((s, p) => s + (nodeIndex.get(p) ?? 0), 0) / bParents.length
+        : 0;
+      return aAvg - bAvg;
+    });
+    for (let i = 0; i < ids.length; i++) {
+      nodeIndex.set(ids[i], i);
+    }
+  }
+
   // Position nodes: center each level horizontally
   const nodePos = new Map<string, { x: number; y: number }>();
-  const sortedLvls = [...levels.entries()].sort((a, b) => a[0] - b[0]);
   const maxWidth = Math.max(...sortedLvls.map(([, ids]) => ids.length));
 
   for (const [lvl, ids] of sortedLvls) {
