@@ -3,6 +3,8 @@ import type { Id } from "@quickboard/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const EXCALIDRAW_CSS = "https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/index.css";
+
 interface ExcalidrawCanvasProps {
   boardId: Id<"boards">;
 }
@@ -19,11 +21,18 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
   const pendingSaveRef = useRef(false);
   const [isDark, setIsDark] = useState(true);
 
+  // Load Excalidraw CSS via link tag (reliable across all environments)
   useEffect(() => {
-    Promise.all([
-      import("@excalidraw/excalidraw"),
-      import("@excalidraw/excalidraw/index.css"),
-    ]).then(([mod]) => {
+    if (document.querySelector(`link[href="${EXCALIDRAW_CSS}"]`)) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = EXCALIDRAW_CSS;
+    document.head.appendChild(link);
+  }, []);
+
+  // Load Excalidraw JS component
+  useEffect(() => {
+    import("@excalidraw/excalidraw").then((mod) => {
       setExcalidrawComp(() => mod.Excalidraw as unknown as React.ComponentType<Record<string, unknown>>);
     });
   }, []);
@@ -43,9 +52,7 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
   // Sync remote changes into Excalidraw
   useEffect(() => {
     if (!board || !initialized || !excalidrawRef.current) return;
-    // Skip updates that came from our own saves
     if (board.lastModified <= lastSavedVersionRef.current) return;
-    // Don't overwrite while a local save is pending
     if (pendingSaveRef.current) return;
 
     try {
@@ -55,7 +62,6 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
         updateScene: (scene: { elements: unknown[] }) => void;
       };
 
-      // Merge: keep local in-progress elements (being drawn), apply remote for everything else
       const localElements = excalidrawApi.getSceneElements();
       const remoteIds = new Set(parsed.map((el: { id: string }) => el.id));
       const localOnly = localElements.filter(
