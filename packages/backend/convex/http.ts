@@ -253,144 +253,127 @@ function parseMermaidToElements(
 ): Record<string, unknown>[] {
   const elements: Record<string, unknown>[] = [];
   const lines = mermaid.trim().split("\n");
-  const nodePositions = new Map<
-    string,
-    { x: number; y: number; width: number; height: number; id: string }
-  >();
 
-  const NODE_WIDTH = 180;
-  const NODE_HEIGHT = 60;
-  const H_SPACING = 250;
-  const V_SPACING = 120;
-  let row = 0;
-  let col = 0;
+  // Parse all node labels and edges
+  const nodeLabels = new Map<string, string>();
+  const nodeShapes = new Map<string, string>();
+  const edges: { from: string; to: string; label: string }[] = [];
+  const nodeOrder: string[] = [];
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (
-      !trimmed ||
-      trimmed.startsWith("graph") ||
-      trimmed.startsWith("flowchart") ||
-      trimmed.startsWith("sequenceDiagram") ||
-      trimmed.startsWith("classDiagram") ||
-      trimmed.startsWith("%%")
-    ) {
-      continue;
+    const t = line.trim();
+    if (!t || /^(graph|flowchart|sequenceDiagram|classDiagram|%%|Note|participant|alt|else|end)/i.test(t)) continue;
+
+    // Parse: FROM_NODE -->|edge label| TO_NODE
+    // First extract edge label if present (between pipes)
+    let edgeLbl = "";
+    let cleaned = t;
+    const pipeLabelMatch = t.match(/\|([^|]*)\|/);
+    if (pipeLabelMatch) {
+      edgeLbl = pipeLabelMatch[1].trim();
+      cleaned = t.replace(/\|[^|]*\|/, "");
     }
+    // Match: FROM[label] --> TO[label]
+    const m = cleaned.match(/(\w+)(?:\[([^\]]*)\]|\{([^}]*)\}|\(([^)]*)\))?\s*-+>?\s*(\w+)(?:\[([^\]]*)\]|\{([^}]*)\}|\(([^)]*)\))?/);
+    if (!m) continue;
 
-    const arrowMatch = trimmed.match(
-      /(\w+)(?:\[([^\]]*)\])?\s*-->?\|?([^|]*)\|?\s*(\w+)(?:\[([^\]]*)\])?/,
-    );
-    if (arrowMatch) {
-      const [, fromId, fromLabel, edgeLabel, toId, toLabel] = arrowMatch;
+    const [, fId, fR, fD, fO, tId, tR, tD, tO] = m;
+    const eLabel = edgeLbl;
 
-      if (!nodePositions.has(fromId)) {
-        const x = startX + col * H_SPACING;
-        const y = startY + row * V_SPACING;
-        const label = fromLabel || fromId;
-        const rectEl = createElement({
-          type: "rectangle",
-          x,
-          y,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-          backgroundColor: "#a5d8ff",
-        });
-        const textEl = createElement({
-          type: "text",
-          x: x + 10,
-          y: y + 15,
-          width: NODE_WIDTH - 20,
-          height: 30,
-          text: label,
-          fontSize: 16,
-        });
-        elements.push(rectEl, textEl);
-        nodePositions.set(fromId, {
-          x,
-          y,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-          id: rectEl.id as string,
-        });
-        col++;
-        if (col > 3) {
-          col = 0;
-          row++;
-        }
-      }
+    // Update labels (later definitions override)
+    const fLabel = fR || fD || fO;
+    const tLabel = tR || tD || tO;
+    if (fLabel) nodeLabels.set(fId, fLabel);
+    else if (!nodeLabels.has(fId)) nodeLabels.set(fId, fId);
+    if (tLabel) nodeLabels.set(tId, tLabel);
+    else if (!nodeLabels.has(tId)) nodeLabels.set(tId, tId);
 
-      if (!nodePositions.has(toId)) {
-        const x = startX + col * H_SPACING;
-        const y = startY + row * V_SPACING;
-        const label = toLabel || toId;
-        const rectEl = createElement({
-          type: "rectangle",
-          x,
-          y,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-          backgroundColor: "#a5d8ff",
-        });
-        const textEl = createElement({
-          type: "text",
-          x: x + 10,
-          y: y + 15,
-          width: NODE_WIDTH - 20,
-          height: 30,
-          text: label,
-          fontSize: 16,
-        });
-        elements.push(rectEl, textEl);
-        nodePositions.set(toId, {
-          x,
-          y,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-          id: rectEl.id as string,
-        });
-        col++;
-        if (col > 3) {
-          col = 0;
-          row++;
-        }
-      }
+    if (fD) nodeShapes.set(fId, "diamond");
+    if (fO) nodeShapes.set(fId, "ellipse");
+    if (tD) nodeShapes.set(tId, "diamond");
+    if (tO) nodeShapes.set(tId, "ellipse");
 
-      const from = nodePositions.get(fromId)!;
-      const to = nodePositions.get(toId)!;
-      const arrowEl = createElement({
-        type: "arrow",
-        x: from.x + from.width,
-        y: from.y + from.height / 2,
-        width: to.x - (from.x + from.width),
-        height: to.y + to.height / 2 - (from.y + from.height / 2),
-        points: [
-          [0, 0],
-          [
-            to.x - (from.x + from.width),
-            to.y + to.height / 2 - (from.y + from.height / 2),
-          ],
-        ],
-      });
-      elements.push(arrowEl);
+    if (!nodeOrder.includes(fId)) nodeOrder.push(fId);
+    if (!nodeOrder.includes(tId)) nodeOrder.push(tId);
+    edges.push({ from: fId, to: tId, label: eLabel?.trim() || "" });
+  }
 
-      if (edgeLabel?.trim()) {
-        const midX =
-          (from.x + from.width + to.x) / 2 -
-          (edgeLabel.trim().length * 4);
-        const midY =
-          (from.y + from.height / 2 + to.y + to.height / 2) / 2 - 15;
-        const labelEl = createElement({
-          type: "text",
-          x: midX,
-          y: midY,
-          width: edgeLabel.trim().length * 9,
-          height: 20,
-          text: edgeLabel.trim(),
-          fontSize: 14,
-        });
-        elements.push(labelEl);
-      }
+  if (nodeOrder.length === 0) return elements;
+
+  // Simple layout: place nodes in a centered column, top to bottom
+  const NODE_W = 220;
+  const NODE_H = 55;
+  const V_GAP = 40;
+  const nodePos = new Map<string, { x: number; y: number }>();
+
+  for (let i = 0; i < nodeOrder.length; i++) {
+    const id = nodeOrder[i];
+    // Center main column, offset alternates slightly for readability
+    nodePos.set(id, {
+      x: startX + (i % 2 === 0 ? 0 : 10),
+      y: startY + i * (NODE_H + V_GAP),
+    });
+  }
+
+  // Color palette by node position
+  const colors = ["#a5d8ff", "#b2f2bb", "#ffec99", "#d0bfff", "#ffc9c9", "#dee2e6"];
+
+  for (let i = 0; i < nodeOrder.length; i++) {
+    const id = nodeOrder[i];
+    const pos = nodePos.get(id)!;
+    const label = nodeLabels.get(id) ?? id;
+    const shape = nodeShapes.get(id) ?? "rectangle";
+
+    elements.push(createElement({
+      type: shape,
+      x: pos.x,
+      y: pos.y,
+      width: NODE_W,
+      height: NODE_H,
+      backgroundColor: colors[i % colors.length],
+    }));
+    elements.push(createElement({
+      type: "text",
+      x: pos.x + 15,
+      y: pos.y + NODE_H / 2 - 10,
+      width: NODE_W - 30,
+      height: 24,
+      text: label,
+      fontSize: 14,
+    }));
+  }
+
+  // Arrows: from bottom-center of source to top-center of target
+  for (const e of edges) {
+    const from = nodePos.get(e.from);
+    const to = nodePos.get(e.to);
+    if (!from || !to) continue;
+
+    const fx = from.x + NODE_W / 2;
+    const fy = from.y + NODE_H;
+    const tx = to.x + NODE_W / 2;
+    const ty = to.y;
+
+    elements.push(createElement({
+      type: "arrow",
+      x: fx,
+      y: fy,
+      width: tx - fx,
+      height: ty - fy,
+      points: [[0, 0], [tx - fx, ty - fy]],
+    }));
+
+    if (e.label) {
+      elements.push(createElement({
+        type: "text",
+        x: (fx + tx) / 2 + 5,
+        y: (fy + ty) / 2 - 12,
+        width: e.label.length * 8 + 10,
+        height: 20,
+        text: e.label,
+        fontSize: 12,
+        strokeColor: "#868e96",
+      }));
     }
   }
 
