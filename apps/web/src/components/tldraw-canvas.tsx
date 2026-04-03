@@ -4,13 +4,13 @@ import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Editor,
-  type TLDefaultColorStyle,
-  type TLStoreSnapshot,
   Tldraw,
+  createTLStore,
   getSnapshot,
   loadSnapshot,
-  toRichText,
 } from "tldraw";
+
+const TLDRAW_CSS = "https://esm.sh/tldraw@3.15.6/tldraw.css";
 
 interface SimpleElement {
   type: string;
@@ -25,46 +25,39 @@ interface SimpleElement {
   points?: number[][];
 }
 
-const COLOR_MAP: Record<string, TLDefaultColorStyle> = {
-  "#1e1e1e": "black",
-  "#e03131": "red",
-  "#2f9e44": "green",
-  "#1971c2": "blue",
-  "#f08c00": "orange",
-  "#6741d9": "violet",
-  "#339af0": "blue",
-  "#fa5252": "red",
-  "#40c057": "green",
-  "#fab005": "yellow",
-  "#495057": "grey",
-  "#868e96": "grey",
+type TldrawColor = "black" | "red" | "green" | "blue" | "orange" | "violet" | "yellow" | "grey" | "light-blue" | "light-green" | "light-red" | "light-violet" | "white";
+
+const COLOR_MAP: Record<string, TldrawColor> = {
+  "#1e1e1e": "black", "#e03131": "red", "#2f9e44": "green",
+  "#1971c2": "blue", "#f08c00": "orange", "#6741d9": "violet",
+  "#339af0": "blue", "#fa5252": "red", "#40c057": "green",
+  "#fab005": "yellow", "#495057": "grey", "#868e96": "grey",
 };
 
-function mapColor(hex?: string): TLDefaultColorStyle {
+function mapColor(hex?: string): TldrawColor {
   if (!hex || hex === "transparent") return "black";
   return COLOR_MAP[hex.toLowerCase()] ?? "black";
 }
 
-function mapFillColor(hex?: string): TLDefaultColorStyle {
+function mapFillColor(hex?: string): TldrawColor {
   if (!hex || hex === "transparent") return "blue";
   const h = hex.toLowerCase();
-  if (h.includes("d8ff") || h.includes("a5d8")) return "blue";
-  if (h.includes("f2bb") || h.includes("b2f2")) return "green";
+  if (h.includes("d8ff") || h.includes("a5d8")) return "light-blue";
+  if (h.includes("f2bb") || h.includes("b2f2")) return "light-green";
   if (h.includes("ec99") || h.includes("ffec")) return "yellow";
-  if (h.includes("c9c9") || h.includes("ffc9")) return "red";
-  if (h.includes("bfff") || h.includes("d0bf")) return "violet";
+  if (h.includes("c9c9") || h.includes("ffc9")) return "light-red";
+  if (h.includes("bfff") || h.includes("d0bf")) return "light-violet";
+  if (h.includes("dee2") || h.includes("f8f9")) return "grey";
   return COLOR_MAP[h] ?? "blue";
 }
 
 function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
-  const shapes: Parameters<Editor["createShapes"]>[0] = [];
-
   for (const el of elements) {
     const color = mapColor(el.strokeColor);
     const hasFill = el.backgroundColor && el.backgroundColor !== "transparent";
 
     if (el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond") {
-      shapes.push({
+      editor.createShape({
         type: "geo",
         x: el.x,
         y: el.y,
@@ -78,12 +71,12 @@ function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
         },
       });
     } else if (el.type === "text") {
-      shapes.push({
+      editor.createShape({
         type: "text",
         x: el.x,
         y: el.y,
         props: {
-          richText: toRichText(el.text ?? ""),
+          text: el.text ?? "",
           color,
           size: (el.fontSize ?? 20) > 24 ? "l" : (el.fontSize ?? 20) > 16 ? "m" : "s",
         },
@@ -91,7 +84,7 @@ function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
     } else if (el.type === "arrow" || el.type === "line") {
       const pts = el.points ?? [[0, 0], [el.width ?? 100, el.height ?? 0]];
       const end = pts[pts.length - 1] ?? [100, 0];
-      shapes.push({
+      editor.createShape({
         type: "arrow",
         x: el.x,
         y: el.y,
@@ -105,10 +98,6 @@ function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
       });
     }
   }
-
-  if (shapes.length > 0) {
-    editor.createShapes(shapes);
-  }
 }
 
 interface TldrawCanvasProps {
@@ -119,111 +108,118 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
   const board = useQuery(api.boards.get, { id: boardId });
   const updateBoard = useMutation(api.boards.update);
 
+  const [store] = useState(() => createTLStore());
   const [ready, setReady] = useState(false);
+  const [cssLoaded, setCssLoaded] = useState(false);
   const editorRef = useRef<Editor | null>(null);
-  const initializedRef = useRef(false);
-  const boardDataRef = useRef<string>("[]");
   const suppressSaveRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedHashRef = useRef("");
+  const initialLoadDone = useRef(false);
 
-  // Track board data for onMount
+  // Load tldraw CSS
   useEffect(() => {
-    if (board) {
-      boardDataRef.current = board.elements;
-      if (!initializedRef.current) {
-        setReady(true);
-      }
+    const existing = document.querySelector(`link[href="${TLDRAW_CSS}"]`);
+    if (existing) {
+      setCssLoaded(true);
+      return;
     }
-  }, [board]);
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = TLDRAW_CSS;
+    link.onload = () => setCssLoaded(true);
+    document.head.appendChild(link);
+  }, []);
 
-  // Listen for remote changes (from MCP or other tabs)
+  // Load initial data into store when board arrives
   useEffect(() => {
-    if (!board || !initializedRef.current || !editorRef.current) return;
+    if (!board || initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    try {
+      const data = board.elements;
+      if (data && data !== "[]") {
+        const parsed = JSON.parse(data);
+        if (parsed.document || parsed.store) {
+          suppressSaveRef.current = true;
+          loadSnapshot(store, parsed);
+          lastSavedHashRef.current = data;
+          suppressSaveRef.current = false;
+        }
+        // Simple elements will be converted in onMount
+      }
+    } catch {
+      // ignore
+    }
+
+    setReady(true);
+  }, [board, store]);
+
+  // Listen for remote changes
+  useEffect(() => {
+    if (!board || !editorRef.current || !initialLoadDone.current) return;
 
     const remoteData = board.elements;
-
-    // Skip if this is data we just saved
     if (remoteData === lastSavedHashRef.current) return;
 
     try {
       const parsed = JSON.parse(remoteData);
       suppressSaveRef.current = true;
 
-      if (parsed.store) {
-        loadSnapshot(editorRef.current.store, parsed as TLStoreSnapshot);
+      if (parsed.document || parsed.store) {
+        loadSnapshot(store, parsed);
       } else if (Array.isArray(parsed) && parsed.length > 0) {
-        // Clear and recreate from simple elements
         const ids = editorRef.current.getCurrentPageShapeIds();
-        if (ids.size > 0) {
-          editorRef.current.deleteShapes([...ids]);
-        }
+        if (ids.size > 0) editorRef.current.deleteShapes([...ids]);
         convertSimpleToTldraw(editorRef.current, parsed as SimpleElement[]);
       }
 
       lastSavedHashRef.current = remoteData;
-
-      // Allow save listener to fire again after a tick
-      requestAnimationFrame(() => {
-        suppressSaveRef.current = false;
-      });
+      requestAnimationFrame(() => { suppressSaveRef.current = false; });
     } catch {
       suppressSaveRef.current = false;
     }
-  }, [board]);
+  }, [board, store]);
 
   const handleMount = useCallback((editor: Editor) => {
     editorRef.current = editor;
-    initializedRef.current = true;
 
-    // Load initial data
-    try {
-      const data = boardDataRef.current;
-      if (data && data !== "[]") {
-        const parsed = JSON.parse(data);
-        suppressSaveRef.current = true;
-
-        if (parsed.store) {
-          loadSnapshot(editor.store, parsed as TLStoreSnapshot);
-        } else if (Array.isArray(parsed) && parsed.length > 0) {
+    // Convert simple elements if needed
+    if (board) {
+      try {
+        const parsed = JSON.parse(board.elements);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          suppressSaveRef.current = true;
           convertSimpleToTldraw(editor, parsed as SimpleElement[]);
+
+          // Save as tldraw snapshot
+          setTimeout(() => {
+            const snapshot = getSnapshot(store);
+            const str = JSON.stringify(snapshot);
+            lastSavedHashRef.current = str;
+            updateBoard({ id: boardId, elements: str }).finally(() => {
+              suppressSaveRef.current = false;
+            });
+          }, 300);
         }
-
-        // Save as tldraw snapshot so future loads are fast
-        const snapshot = getSnapshot(editor.store);
-        const snapshotStr = JSON.stringify(snapshot);
-        lastSavedHashRef.current = snapshotStr;
-
-        updateBoard({
-          id: boardId,
-          elements: snapshotStr,
-        }).then(() => {
-          suppressSaveRef.current = false;
-        });
-      } else {
+      } catch {
         suppressSaveRef.current = false;
       }
-    } catch {
-      suppressSaveRef.current = false;
     }
 
-    // Listen for user edits and save to Convex
-    const cleanup = editor.store.listen(() => {
+    // Save on changes
+    const cleanup = store.listen(() => {
       if (suppressSaveRef.current) return;
 
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-      saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = setTimeout(() => {
         if (suppressSaveRef.current) return;
-        const snapshot = getSnapshot(editor.store);
-        const snapshotStr = JSON.stringify(snapshot);
-        lastSavedHashRef.current = snapshotStr;
-        await updateBoard({
-          id: boardId,
-          elements: snapshotStr,
-        });
+        const snapshot = getSnapshot(store);
+        const str = JSON.stringify(snapshot);
+        if (str === lastSavedHashRef.current) return;
+        lastSavedHashRef.current = str;
+        updateBoard({ id: boardId, elements: str });
       }, 500);
     });
 
@@ -231,9 +227,9 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
       cleanup();
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [boardId, updateBoard]);
+  }, [boardId, updateBoard, board, store]);
 
-  if (!board || !ready) {
+  if (!board || !ready || !cssLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -244,5 +240,5 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
     );
   }
 
-  return <Tldraw onMount={handleMount} />;
+  return <Tldraw store={store} onMount={handleMount} />;
 }
