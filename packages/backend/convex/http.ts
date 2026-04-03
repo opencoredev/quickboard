@@ -235,7 +235,7 @@ function createExcalidrawElement(input: Record<string, unknown>) {
       ...base,
       text: (input.text as string) ?? "",
       fontSize: (input.fontSize as number) ?? 20,
-      fontFamily: 5,
+      fontFamily: 1,
       textAlign: "left",
       verticalAlign: "top",
       containerId: null,
