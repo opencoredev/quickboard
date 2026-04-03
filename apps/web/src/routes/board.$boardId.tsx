@@ -12,7 +12,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Canvas, type CanvasElement } from "../components/canvas";
+import { TldrawCanvas } from "../components/tldraw-canvas";
 import { ThemeToggle } from "../components/theme-toggle";
 
 export const Route = createFileRoute("/board/$boardId")({
@@ -24,17 +24,12 @@ function BoardPage() {
   const board = useQuery(api.boards.get, {
     id: boardId as Id<"boards">,
   });
-  const updateBoard = useMutation(api.boards.update);
   const updateTitle = useMutation(api.boards.updateTitle);
 
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [copied, setCopied] = useState(false);
-  const [localElements, setLocalElements] = useState<CanvasElement[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedVersionRef = useRef(0);
-  const pendingSaveRef = useRef(false);
 
   useEffect(() => {
     if (board) setTitle(board.title);
@@ -46,60 +41,6 @@ function BoardPage() {
       inputRef.current.select();
     }
   }, [isEditing]);
-
-  // Initialize local elements from Convex
-  useEffect(() => {
-    if (!board) return;
-    if (localElements === null) {
-      try {
-        setLocalElements(JSON.parse(board.elements));
-        lastSavedVersionRef.current = board.lastModified;
-      } catch {
-        setLocalElements([]);
-      }
-      return;
-    }
-    // Apply remote updates (from MCP or other tabs)
-    if (board.lastModified > lastSavedVersionRef.current && !pendingSaveRef.current) {
-      try {
-        setLocalElements(JSON.parse(board.elements));
-        lastSavedVersionRef.current = board.lastModified;
-      } catch {
-        // ignore
-      }
-    }
-  }, [board, localElements]);
-
-  const handleChange = useCallback(
-    (elements: CanvasElement[]) => {
-      setLocalElements(elements);
-      pendingSaveRef.current = true;
-
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-
-      saveTimeoutRef.current = setTimeout(async () => {
-        try {
-          await updateBoard({
-            id: boardId as Id<"boards">,
-            elements: JSON.stringify(elements),
-            secret: "", // UI edits don't need secret (server allows empty for direct mutations)
-          });
-          lastSavedVersionRef.current = Date.now();
-        } finally {
-          pendingSaveRef.current = false;
-        }
-      }, 300);
-    },
-    [boardId, updateBoard],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, []);
 
   const handleSaveTitle = useCallback(async () => {
     if (title.trim() && title !== board?.title) {
@@ -145,7 +86,7 @@ function BoardPage() {
 
   return (
     <div className="flex h-svh flex-col">
-      <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
+      <header className="z-10 flex items-center justify-between border-b border-border bg-background px-3 py-1.5">
         <div className="flex items-center gap-2">
           <Link
             to="/"
@@ -210,9 +151,7 @@ function BoardPage() {
       </header>
 
       <div className="relative flex-1">
-        {localElements !== null && (
-          <Canvas elements={localElements} onChange={handleChange} />
-        )}
+        <TldrawCanvas boardId={boardId as Id<"boards">} />
       </div>
     </div>
   );
