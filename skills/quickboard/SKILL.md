@@ -90,6 +90,27 @@ Pass `mermaid` instead of `elements` to auto-generate a diagram:
 - Use `clear_board` to wipe and redraw on the same board.
 - Only create a new board for a genuinely new topic.
 
+## CRITICAL: Mermaid vs Direct Elements
+
+> **Use mermaid ONLY for simple flows with max 8 nodes.** For anything more complex, use direct elements with manual x,y positioning. The auto-layout cannot handle complex graphs cleanly.
+
+**Use mermaid** when:
+- Linear flow with 4-8 nodes
+- At most 1 decision branch (Yes/No)
+- No loops back to earlier nodes
+
+**Use direct elements** when:
+- More than 8 nodes
+- Multiple branches or decision points
+- Loops or back-edges
+- Architecture diagrams, dashboards, or anything needing precise layout
+
+When using direct elements for a flowchart, lay it out yourself:
+- Main path goes straight down, center column at x=300
+- "Yes" branches continue down
+- "No" branches go to the right (x=600)
+- Use arrows to connect: `points: [[0,0],[0,120]]` for down, `[[0,0],[200,0]]` for right
+
 ## Layout Tips
 
 - Start at `x: 100, y: 100`
@@ -97,12 +118,6 @@ Pass `mermaid` instead of `elements` to auto-generate a diagram:
 - For text inside shapes: offset `x + 15, y + 15` from shape position
 - Use consistent widths (200-220px) for flowchart nodes
 - Add all elements in one `add_elements` call for performance
-- For complex diagrams, use direct elements (not mermaid) - you get full control over positioning
-
-## When to Use Mermaid vs Direct Elements
-
-- **Use mermaid** for simple linear flows (5-8 nodes, minimal branching)
-- **Use direct elements** for anything complex - dashboards, architecture diagrams, detailed flowcharts. You control the exact position of every shape.
 
 ## Security
 
