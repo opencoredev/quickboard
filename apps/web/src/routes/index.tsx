@@ -9,7 +9,8 @@ import {
   Terminal,
   Zap,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import Header from "../components/header";
 
 export const Route = createFileRoute("/")({
@@ -71,6 +72,61 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         </>
       )}
     </Button>
+  );
+}
+
+function RecentBoards() {
+  const [boards, setBoards] = useState<{ id: string; title: string; ts: number }[]>([]);
+
+  useEffect(() => {
+    try {
+      const visited = JSON.parse(localStorage.getItem("quickboard:visited") || "[]");
+      setBoards(visited);
+    } catch {}
+  }, []);
+
+  const removeBoard = useCallback((id: string) => {
+    setBoards((prev) => {
+      const updated = prev.filter((b) => b.id !== id);
+      localStorage.setItem("quickboard:visited", JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  if (boards.length === 0) return null;
+
+  const formatTime = (ts: number) => {
+    const diff = Date.now() - ts;
+    if (diff < 60000) return "Just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  };
+
+  return (
+    <div className="mb-12">
+      <h2 className="mb-4 text-lg font-semibold">Recent Boards</h2>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {boards.map((b) => (
+          <div key={b.id} className="group flex items-center justify-between rounded-lg border border-border bg-card p-3 transition-colors hover:border-ring">
+            <Link
+              to="/board/$boardId"
+              params={{ boardId: b.id }}
+              className="flex-1 truncate"
+            >
+              <span className="text-sm font-medium">{b.title}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{formatTime(b.ts)}</span>
+            </Link>
+            <button
+              onClick={() => removeBoard(b.id)}
+              className="ml-2 rounded p-1 text-xs text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+            >
+              x
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -229,6 +285,9 @@ function HomeComponent() {
               </p>
             </div>
           </div>
+
+          {/* Recently visited boards */}
+          <RecentBoards />
 
           {/* MCP Endpoint */}
           <div className="rounded-xl border border-border bg-card p-5">

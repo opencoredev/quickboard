@@ -32,8 +32,19 @@ function BoardPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (board) setTitle(board.title);
-  }, [board]);
+    if (board) {
+      setTitle(board.title);
+      // Track visited boards in localStorage
+      try {
+        const key = "quickboard:visited";
+        const visited: { id: string; title: string; ts: number }[] = JSON.parse(localStorage.getItem(key) || "[]");
+        const existing = visited.findIndex((v) => v.id === boardId);
+        if (existing >= 0) visited.splice(existing, 1);
+        visited.unshift({ id: boardId, title: board.title, ts: Date.now() });
+        localStorage.setItem(key, JSON.stringify(visited.slice(0, 20)));
+      } catch {}
+    }
+  }, [board, boardId]);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
