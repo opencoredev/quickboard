@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node -e \"const{cpSync,existsSync}=require('fs');const p=require('path');const src=p.join(require.resolve('@excalidraw/excalidraw'),'..','..','dist','prod','fonts');const dest=p.join(__dirname,'public','assets','fonts');if(existsSync(src)){cpSync(src,dest,{recursive:true});const x=p.join(dest,'Xiaolai');if(existsSync(x)){require('fs').rmSync(x,{recursive:true})}}\"",
     "build": "vite build",
     "serve": "vite preview",
     "dev": "portless quickboard vite dev"
