@@ -407,17 +407,24 @@ function parseMermaidToElements(
     const toCx = to.x + NODE_W / 2;
     const toTop = to.y;
 
-    // For back-edges (to a node above), go from the right side
+    // For back-edges (to a node above or same row), route around the right
     if (toTop <= from.y) {
-      const fx = from.x + NODE_W + 10;
+      // Find the rightmost x of all nodes to route outside
+      const maxRight = Math.max(...[...nodePos.values()].map((p) => p.x + NODE_W));
+      const routeX = maxRight + 60; // Route outside all nodes
+
+      const fx = from.x + NODE_W;
       const fy = from.y + NODE_H / 2;
-      const tx = to.x + NODE_W + 10;
+      const tx = to.x + NODE_W;
       const ty = to.y + NODE_H / 2;
+      const offsetR = routeX - fx;
+
       elements.push(createElement({
         type: "arrow",
         x: fx, y: fy,
         width: tx - fx, height: ty - fy,
-        points: [[0, 0], [40, 0], [40, ty - fy], [tx - fx, ty - fy]],
+        points: [[0, 0], [offsetR, 0], [offsetR, ty - fy], [tx - fx, ty - fy]],
+        strokeColor: "#868e96",
       }));
     } else {
       elements.push(createElement({
