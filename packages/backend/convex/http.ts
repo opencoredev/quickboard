@@ -562,9 +562,11 @@ async function handleToolCall(
           };
         }
 
-        const existingElements = JSON.parse(
+        const parsed = JSON.parse(
           (board as { elements: string }).elements,
         );
+        // If it's a tldraw snapshot (object with 'store'), start fresh
+        const existingElements = Array.isArray(parsed) ? parsed : [];
         const newElements: Record<string, unknown>[] = [];
 
         if (args.elements && Array.isArray(args.elements)) {
