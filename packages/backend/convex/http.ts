@@ -16,7 +16,7 @@ const MCP_TOOLS = [
   {
     name: "create_board",
     description:
-      "Create a new whiteboard. Returns the board ID and a shareable URL where the board can be viewed live.",
+      "Create a new whiteboard. Returns the board ID, a secret token for making changes, and a shareable URL where the board can be viewed live. Save the secret - you need it for all write operations.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -30,7 +30,7 @@ const MCP_TOOLS = [
   {
     name: "get_board",
     description:
-      "Get the current state of a board including all elements (shapes, text, drawings).",
+      "Get the current state of a board including all elements (shapes, text, drawings). No secret needed.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -45,7 +45,7 @@ const MCP_TOOLS = [
   {
     name: "add_elements",
     description:
-      "Add elements to a board. Elements are Excalidraw-compatible JSON objects. Supports rectangles, ellipses, diamonds, lines, arrows, text, and freehand drawings. You can also provide a mermaid diagram string which will be converted to elements.",
+      "Add elements to a board. Requires the board secret. Supports rectangles, ellipses, diamonds, lines, arrows, text, and freehand drawings. You can also provide a mermaid diagram string which will be converted to elements.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -53,10 +53,15 @@ const MCP_TOOLS = [
           type: "string",
           description: "The board ID to add elements to",
         },
+        secret: {
+          type: "string",
+          description:
+            "The board secret token returned from create_board. Required for write operations.",
+        },
         elements: {
           type: "array",
           description:
-            "Array of Excalidraw element objects to add. Each element needs at minimum: type, x, y, width, height. Supported types: rectangle, ellipse, diamond, line, arrow, text, freedraw.",
+            "Array of element objects to add. Each element needs at minimum: type, x, y. Supported types: rectangle, ellipse, diamond, line, arrow, text, freedraw.",
           items: {
             type: "object",
             properties: {
@@ -76,11 +81,11 @@ const MCP_TOOLS = [
               y: { type: "number", description: "Y position" },
               width: {
                 type: "number",
-                description: "Width (for shapes and text)",
+                description: "Width (default: 100)",
               },
               height: {
                 type: "number",
-                description: "Height (for shapes and text)",
+                description: "Height (default: 100)",
               },
               text: {
                 type: "string",
@@ -94,11 +99,6 @@ const MCP_TOOLS = [
                 type: "string",
                 description:
                   "Fill color (default: transparent). Use 'transparent' for no fill.",
-              },
-              fillStyle: {
-                type: "string",
-                enum: ["solid", "hachure", "cross-hatch"],
-                description: "Fill style (default: solid)",
               },
               strokeWidth: {
                 type: "number",
@@ -124,12 +124,13 @@ const MCP_TOOLS = [
             "A mermaid diagram string. Will be converted to visual elements on the board. Use this for flowcharts, sequence diagrams, etc.",
         },
       },
-      required: ["board_id"],
+      required: ["board_id", "secret"],
     },
   },
   {
     name: "clear_board",
-    description: "Remove all elements from a board.",
+    description:
+      "Remove all elements from a board. Requires the board secret.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -137,20 +138,30 @@ const MCP_TOOLS = [
           type: "string",
           description: "The board ID to clear",
         },
+        secret: {
+          type: "string",
+          description:
+            "The board secret token returned from create_board. Required for write operations.",
+        },
       },
-      required: ["board_id"],
+      required: ["board_id", "secret"],
     },
   },
   {
     name: "update_element",
     description:
-      "Update properties of an existing element on a board by its ID.",
+      "Update properties of an existing element on a board by its ID. Requires the board secret.",
     inputSchema: {
       type: "object" as const,
       properties: {
         board_id: {
           type: "string",
           description: "The board ID containing the element",
+        },
+        secret: {
+          type: "string",
+          description:
+            "The board secret token returned from create_board. Required for write operations.",
         },
         element_id: {
           type: "string",
@@ -162,12 +173,13 @@ const MCP_TOOLS = [
             "Properties to update (x, y, width, height, text, strokeColor, backgroundColor, etc.)",
         },
       },
-      required: ["board_id", "element_id", "updates"],
+      required: ["board_id", "secret", "element_id", "updates"],
     },
   },
   {
     name: "delete_elements",
-    description: "Delete specific elements from a board by their IDs.",
+    description:
+      "Delete specific elements from a board by their IDs. Requires the board secret.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -175,13 +187,18 @@ const MCP_TOOLS = [
           type: "string",
           description: "The board ID to delete elements from",
         },
+        secret: {
+          type: "string",
+          description:
+            "The board secret token returned from create_board. Required for write operations.",
+        },
         element_ids: {
           type: "array",
           description: "Array of element IDs to delete",
           items: { type: "string" },
         },
       },
-      required: ["board_id", "element_ids"],
+      required: ["board_id", "secret", "element_ids"],
     },
   },
 ];
@@ -196,53 +213,23 @@ function generateId(): string {
   return result;
 }
 
-function createExcalidrawElement(input: Record<string, unknown>) {
+function createElement(input: Record<string, unknown>) {
   const id = generateId();
-  const base = {
+  const element: Record<string, unknown> = {
     id,
     type: input.type as string,
     x: (input.x as number) ?? 0,
     y: (input.y as number) ?? 0,
     width: (input.width as number) ?? 100,
     height: (input.height as number) ?? 100,
-    angle: 0,
     strokeColor: (input.strokeColor as string) ?? "#1e1e1e",
     backgroundColor: (input.backgroundColor as string) ?? "transparent",
-    fillStyle: (input.fillStyle as string) ?? "solid",
     strokeWidth: (input.strokeWidth as number) ?? 2,
-    strokeStyle: "solid",
-    roughness: 1,
-    opacity: 100,
-    groupIds: [],
-    frameId: null,
-    index: generateId().slice(0, 5),
-    roundness:
-      input.type === "line" || input.type === "arrow"
-        ? { type: 2 }
-        : { type: 3 },
-    seed: Math.floor(Math.random() * 2000000000),
-    version: 1,
-    versionNonce: Math.floor(Math.random() * 2000000000),
-    isDeleted: false,
-    boundElements: null,
-    updated: Date.now(),
-    link: null,
-    locked: false,
   };
 
   if (input.type === "text") {
-    return {
-      ...base,
-      text: (input.text as string) ?? "",
-      fontSize: (input.fontSize as number) ?? 20,
-      fontFamily: 1,
-      textAlign: "left",
-      verticalAlign: "top",
-      containerId: null,
-      originalText: (input.text as string) ?? "",
-      autoResize: true,
-      lineHeight: 1.25,
-    };
+    element.text = (input.text as string) ?? "";
+    element.fontSize = (input.fontSize as number) ?? 20;
   }
 
   if (
@@ -250,21 +237,13 @@ function createExcalidrawElement(input: Record<string, unknown>) {
     input.type === "arrow" ||
     input.type === "freedraw"
   ) {
-    return {
-      ...base,
-      points: (input.points as number[][]) ?? [
-        [0, 0],
-        [(input.width as number) ?? 100, (input.height as number) ?? 0],
-      ],
-      lastCommittedPoint: null,
-      startBinding: null,
-      endBinding: null,
-      startArrowhead: null,
-      endArrowhead: input.type === "arrow" ? "arrow" : null,
-    };
+    element.points = (input.points as number[][]) ?? [
+      [0, 0],
+      [(input.width as number) ?? 100, (input.height as number) ?? 0],
+    ];
   }
 
-  return base;
+  return element;
 }
 
 function parseMermaidToElements(
@@ -309,16 +288,15 @@ function parseMermaidToElements(
         const x = startX + col * H_SPACING;
         const y = startY + row * V_SPACING;
         const label = fromLabel || fromId;
-        const rectEl = createExcalidrawElement({
+        const rectEl = createElement({
           type: "rectangle",
           x,
           y,
           width: NODE_WIDTH,
           height: NODE_HEIGHT,
           backgroundColor: "#a5d8ff",
-          fillStyle: "solid",
         });
-        const textEl = createExcalidrawElement({
+        const textEl = createElement({
           type: "text",
           x: x + 10,
           y: y + 15,
@@ -346,16 +324,15 @@ function parseMermaidToElements(
         const x = startX + col * H_SPACING;
         const y = startY + row * V_SPACING;
         const label = toLabel || toId;
-        const rectEl = createExcalidrawElement({
+        const rectEl = createElement({
           type: "rectangle",
           x,
           y,
           width: NODE_WIDTH,
           height: NODE_HEIGHT,
           backgroundColor: "#a5d8ff",
-          fillStyle: "solid",
         });
-        const textEl = createExcalidrawElement({
+        const textEl = createElement({
           type: "text",
           x: x + 10,
           y: y + 15,
@@ -381,7 +358,7 @@ function parseMermaidToElements(
 
       const from = nodePositions.get(fromId)!;
       const to = nodePositions.get(toId)!;
-      const arrowEl = createExcalidrawElement({
+      const arrowEl = createElement({
         type: "arrow",
         x: from.x + from.width,
         y: from.y + from.height / 2,
@@ -403,7 +380,7 @@ function parseMermaidToElements(
           (edgeLabel.trim().length * 4);
         const midY =
           (from.y + from.height / 2 + to.y + to.height / 2) / 2 - 15;
-        const labelEl = createExcalidrawElement({
+        const labelEl = createElement({
           type: "text",
           x: midX,
           y: midY,
@@ -431,18 +408,20 @@ async function handleToolCall(
 ) {
   switch (toolName) {
     case "create_board": {
-      const boardId = await ctx.runMutation(api.boards.create, {
+      const result = (await ctx.runMutation(api.boards.create, {
         title: (args.title as string) ?? "Untitled Board",
-      });
+      })) as { boardId: string; secret: string };
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify(
               {
-                board_id: boardId,
-                url: `${siteUrl}/board/${boardId as string}`,
-                message: "Board created successfully. Share the URL for live viewing.",
+                board_id: result.boardId,
+                secret: result.secret,
+                url: `${siteUrl}/board/${result.boardId}`,
+                message:
+                  "Board created successfully. Save the secret - you need it for all write operations. Share the URL for live viewing.",
               },
               null,
               2,
@@ -507,6 +486,15 @@ async function handleToolCall(
 
     case "add_elements": {
       const boardId = args.board_id as string;
+      const secret = args.secret as string;
+      if (!secret) {
+        return {
+          content: [
+            { type: "text", text: "Missing required parameter: secret" },
+          ],
+          isError: true,
+        };
+      }
       try {
         const board = await ctx.runQuery(api.boards.get, {
           id: boardId as Id<"boards">,
@@ -526,7 +514,7 @@ async function handleToolCall(
         if (args.elements && Array.isArray(args.elements)) {
           for (const el of args.elements) {
             newElements.push(
-              createExcalidrawElement(el as Record<string, unknown>),
+              createElement(el as Record<string, unknown>),
             );
           }
         }
@@ -554,6 +542,7 @@ async function handleToolCall(
         await ctx.runMutation(api.boards.update, {
           id: boardId as Id<"boards">,
           elements: JSON.stringify(allElements),
+          secret,
         });
 
         return {
@@ -590,10 +579,20 @@ async function handleToolCall(
 
     case "clear_board": {
       const boardId = args.board_id as string;
+      const secret = args.secret as string;
+      if (!secret) {
+        return {
+          content: [
+            { type: "text", text: "Missing required parameter: secret" },
+          ],
+          isError: true,
+        };
+      }
       try {
         await ctx.runMutation(api.boards.update, {
           id: boardId as Id<"boards">,
           elements: "[]",
+          secret,
         });
         return {
           content: [
@@ -603,10 +602,13 @@ async function handleToolCall(
             },
           ],
         };
-      } catch {
+      } catch (e) {
         return {
           content: [
-            { type: "text", text: `Board not found: ${boardId}` },
+            {
+              type: "text",
+              text: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            },
           ],
           isError: true,
         };
@@ -615,6 +617,15 @@ async function handleToolCall(
 
     case "update_element": {
       const boardId = args.board_id as string;
+      const secret = args.secret as string;
+      if (!secret) {
+        return {
+          content: [
+            { type: "text", text: "Missing required parameter: secret" },
+          ],
+          isError: true,
+        };
+      }
       const elementId = args.element_id as string;
       const updates = args.updates as Record<string, unknown>;
       try {
@@ -644,14 +655,12 @@ async function handleToolCall(
         elements[idx] = {
           ...elements[idx],
           ...updates,
-          version: ((elements[idx].version as number) ?? 1) + 1,
-          versionNonce: Math.floor(Math.random() * 2000000000),
-          updated: Date.now(),
         };
 
         await ctx.runMutation(api.boards.update, {
           id: boardId as Id<"boards">,
           elements: JSON.stringify(elements),
+          secret,
         });
 
         return {
@@ -677,6 +686,15 @@ async function handleToolCall(
 
     case "delete_elements": {
       const boardId = args.board_id as string;
+      const secret = args.secret as string;
+      if (!secret) {
+        return {
+          content: [
+            { type: "text", text: "Missing required parameter: secret" },
+          ],
+          isError: true,
+        };
+      }
       const elementIds = args.element_ids as string[];
       try {
         const board = await ctx.runQuery(api.boards.get, {
@@ -700,6 +718,7 @@ async function handleToolCall(
         await ctx.runMutation(api.boards.update, {
           id: boardId as Id<"boards">,
           elements: JSON.stringify(filtered),
+          secret,
         });
 
         return {

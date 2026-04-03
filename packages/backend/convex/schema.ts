@@ -6,6 +6,7 @@ export default defineSchema({
     title: v.string(),
     elements: v.string(),
     appState: v.optional(v.string()),
+    secret: v.optional(v.string()),
     createdAt: v.number(),
     lastModified: v.number(),
   }).index("by_created", ["createdAt"]),
