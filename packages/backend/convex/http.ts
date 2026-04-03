@@ -300,29 +300,82 @@ function parseMermaidToElements(
 
   if (nodeOrder.length === 0) return elements;
 
-  // Simple layout: place nodes in a centered column, top to bottom
+  // --- Graph layout with BFS depth assignment ---
   const NODE_W = 220;
   const NODE_H = 55;
-  const V_GAP = 40;
-  const nodePos = new Map<string, { x: number; y: number }>();
+  const H_GAP = 80;
+  const V_GAP = 80;
 
-  for (let i = 0; i < nodeOrder.length; i++) {
-    const id = nodeOrder[i];
-    // Center main column, offset alternates slightly for readability
-    nodePos.set(id, {
-      x: startX + (i % 2 === 0 ? 0 : 10),
-      y: startY + i * (NODE_H + V_GAP),
-    });
+  // Build adjacency: parent -> [children in order]
+  const children = new Map<string, string[]>();
+  for (const id of nodeOrder) children.set(id, []);
+  for (const e of edges) {
+    const list = children.get(e.from);
+    if (list && !list.includes(e.to)) list.push(e.to);
   }
 
-  // Color palette by node position
+  // BFS depth assignment
+  const depth = new Map<string, number>();
+  const inDeg = new Map<string, number>();
+  for (const id of nodeOrder) inDeg.set(id, 0);
+  for (const e of edges) inDeg.set(e.to, (inDeg.get(e.to) ?? 0) + 1);
+
+  const roots = nodeOrder.filter((id) => (inDeg.get(id) ?? 0) === 0);
+  if (roots.length === 0) roots.push(nodeOrder[0]);
+
+  const visited = new Set<string>();
+  const queue: string[] = [];
+  for (const r of roots) { depth.set(r, 0); queue.push(r); visited.add(r); }
+
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    const d = depth.get(node)!;
+    for (const child of children.get(node) ?? []) {
+      if (!visited.has(child)) {
+        visited.add(child);
+        depth.set(child, d + 1);
+        queue.push(child);
+      }
+    }
+  }
+  // Assign unvisited nodes
+  for (const id of nodeOrder) {
+    if (!depth.has(id)) depth.set(id, (depth.size > 0 ? Math.max(...depth.values()) + 1 : 0));
+  }
+
+  // Group by level
+  const levels = new Map<number, string[]>();
+  for (const [id, d] of depth) {
+    if (!levels.has(d)) levels.set(d, []);
+    levels.get(d)!.push(id);
+  }
+
+  // Position nodes: center each level horizontally
+  const nodePos = new Map<string, { x: number; y: number }>();
+  const sortedLvls = [...levels.entries()].sort((a, b) => a[0] - b[0]);
+  const maxWidth = Math.max(...sortedLvls.map(([, ids]) => ids.length));
+
+  for (const [lvl, ids] of sortedLvls) {
+    const totalW = ids.length * NODE_W + (ids.length - 1) * H_GAP;
+    const maxTotalW = maxWidth * NODE_W + (maxWidth - 1) * H_GAP;
+    const offsetX = startX + (maxTotalW - totalW) / 2;
+    for (let i = 0; i < ids.length; i++) {
+      nodePos.set(ids[i], {
+        x: offsetX + i * (NODE_W + H_GAP),
+        y: startY + lvl * (NODE_H + V_GAP),
+      });
+    }
+  }
+
+  // Color palette by depth
   const colors = ["#a5d8ff", "#b2f2bb", "#ffec99", "#d0bfff", "#ffc9c9", "#dee2e6"];
 
-  for (let i = 0; i < nodeOrder.length; i++) {
-    const id = nodeOrder[i];
-    const pos = nodePos.get(id)!;
+  for (const id of nodeOrder) {
+    const pos = nodePos.get(id);
+    if (!pos) continue;
     const label = nodeLabels.get(id) ?? id;
     const shape = nodeShapes.get(id) ?? "rectangle";
+    const d = depth.get(id) ?? 0;
 
     elements.push(createElement({
       type: shape,
@@ -330,7 +383,7 @@ function parseMermaidToElements(
       y: pos.y,
       width: NODE_W,
       height: NODE_H,
-      backgroundColor: colors[i % colors.length],
+      backgroundColor: colors[d % colors.length],
     }));
     elements.push(createElement({
       type: "text",
@@ -343,31 +396,44 @@ function parseMermaidToElements(
     }));
   }
 
-  // Arrows: from bottom-center of source to top-center of target
+  // Arrows: connect from bottom-center to top-center, offset if side-by-side
   for (const e of edges) {
     const from = nodePos.get(e.from);
     const to = nodePos.get(e.to);
     if (!from || !to) continue;
 
-    const fx = from.x + NODE_W / 2;
-    const fy = from.y + NODE_H;
-    const tx = to.x + NODE_W / 2;
-    const ty = to.y;
+    const fromCx = from.x + NODE_W / 2;
+    const fromBot = from.y + NODE_H;
+    const toCx = to.x + NODE_W / 2;
+    const toTop = to.y;
 
-    elements.push(createElement({
-      type: "arrow",
-      x: fx,
-      y: fy,
-      width: tx - fx,
-      height: ty - fy,
-      points: [[0, 0], [tx - fx, ty - fy]],
-    }));
+    // For back-edges (to a node above), go from the right side
+    if (toTop <= from.y) {
+      const fx = from.x + NODE_W + 10;
+      const fy = from.y + NODE_H / 2;
+      const tx = to.x + NODE_W + 10;
+      const ty = to.y + NODE_H / 2;
+      elements.push(createElement({
+        type: "arrow",
+        x: fx, y: fy,
+        width: tx - fx, height: ty - fy,
+        points: [[0, 0], [40, 0], [40, ty - fy], [tx - fx, ty - fy]],
+      }));
+    } else {
+      elements.push(createElement({
+        type: "arrow",
+        x: fromCx, y: fromBot,
+        width: toCx - fromCx, height: toTop - fromBot,
+        points: [[0, 0], [toCx - fromCx, toTop - fromBot]],
+      }));
+    }
 
     if (e.label) {
+      const midX = (fromCx + toCx) / 2 + 15;
+      const midY = (fromBot + toTop) / 2 - 8;
       elements.push(createElement({
         type: "text",
-        x: (fx + tx) / 2 + 5,
-        y: (fy + ty) / 2 - 12,
+        x: midX, y: midY,
         width: e.label.length * 8 + 10,
         height: 20,
         text: e.label,
