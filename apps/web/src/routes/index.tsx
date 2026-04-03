@@ -19,14 +19,20 @@ export const Route = createFileRoute("/")({
 
 const MCP_URL = "https://courteous-rabbit-357.convex.site/mcp";
 
-const SETUP_PROMPT = `Set up the QuickBoard MCP server for me. Add the following to my MCP configuration:
+const SKILL_INSTALL = "npx skills add opencoredev/quickboard";
 
-Server name: quickboard
-URL: ${MCP_URL}
+const SETUP_PROMPT = `Set up QuickBoard for me. Run these two commands:
 
-This gives you tools to create whiteboards, add shapes/text/diagrams, and share live board URLs. Create a board and draw something on it to verify it works.`;
+1. Install the skill: ${SKILL_INSTALL}
+2. Add the MCP: claude mcp add quickboard --transport http ${MCP_URL}
 
-const CURSOR_CONFIG = `{
+Then create a board and draw something to verify it works.`;
+
+const CURSOR_CONFIG = `// 1. Install skill
+npx skills add opencoredev/quickboard
+
+// 2. Add to .cursor/mcp.json
+{
   "mcpServers": {
     "quickboard": {
       "url": "${MCP_URL}"
@@ -34,9 +40,15 @@ const CURSOR_CONFIG = `{
   }
 }`;
 
-const CLAUDE_CODE_CONFIG = `claude mcp add quickboard --transport http ${MCP_URL}`;
+const CLAUDE_CODE_CONFIG = `# Install skill + MCP in one go
+npx skills add opencoredev/quickboard
+claude mcp add quickboard --transport http ${MCP_URL}`;
 
-const CODEX_CONFIG = `{
+const CODEX_CONFIG = `// 1. Install skill
+npx skills add opencoredev/quickboard
+
+// 2. Add to your MCP config
+{
   "mcpServers": {
     "quickboard": {
       "url": "${MCP_URL}"

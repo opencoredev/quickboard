@@ -1,128 +1,70 @@
 ---
 name: quickboard
 description: >-
-  Use the QuickBoard MCP to create and draw on live whiteboards. Covers creating boards,
-  adding shapes/text/arrows/diagrams, using mermaid syntax, and building visual layouts
-  that users can view in real-time at a shareable URL.
-version: 2.0.0
+  Use the QuickBoard MCP to create and draw on live whiteboards.
+  Create boards, add shapes/text/arrows, use mermaid for simple flows,
+  and share live URLs with users.
+version: 2.1.0
 author: opencoredev
 tags: [mcp, whiteboard, diagrams, visualization]
 ---
 
-# QuickBoard MCP
+# QuickBoard
 
-QuickBoard gives you a live whiteboard canvas. Create a board, add elements, share the URL. The user sees everything in real-time.
+Create a board, add elements, share the URL. Users see it live.
 
 ## Tools
 
-- **create_board** - Create a new board. Returns `board_id`, `secret`, and `url`.
-- **get_board** - Get current elements on a board (public, no secret needed).
-- **add_elements** - Add shapes, text, or mermaid diagrams. Requires `secret`.
+- **create_board** - Returns `board_id`, `secret`, `url`. Save the secret.
+- **get_board** - Public. No secret needed.
+- **add_elements** - Add shapes/text/mermaid. Requires `secret`.
 - **clear_board** - Wipe the board. Requires `secret`.
 
 ## Workflow
 
-1. Call `create_board` with a title
-2. **Save the `secret`** - you need it for all write operations
-3. Share the returned URL with the user immediately
-4. Call `add_elements` with board_id + secret to draw
+1. `create_board` → save `secret` → share URL with user immediately
+2. `add_elements` with board_id + secret
+3. Reuse the same board. Only create new for a new topic.
 
-Always share the board URL right after creating so the user can watch live.
-
-## Element Types
-
-Each element needs `type`, `x`, `y`. Shapes also need `width` and `height`.
-
-### Rectangles
-```json
-{"type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 80, "backgroundColor": "#a5d8ff", "strokeColor": "#339af0"}
-```
-
-### Ellipses
-```json
-{"type": "ellipse", "x": 100, "y": 100, "width": 120, "height": 120, "backgroundColor": "#b2f2bb", "strokeColor": "#2f9e44"}
-```
-
-### Diamonds
-```json
-{"type": "diamond", "x": 100, "y": 100, "width": 140, "height": 100, "backgroundColor": "#ffec99", "strokeColor": "#f08c00"}
-```
-
-### Text
-```json
-{"type": "text", "x": 100, "y": 100, "text": "Hello", "fontSize": 20, "strokeColor": "#1e1e1e"}
-```
-
-### Arrows
-```json
-{"type": "arrow", "x": 100, "y": 100, "width": 200, "height": 0, "points": [[0, 0], [200, 0]]}
-```
-
-### Lines
-```json
-{"type": "line", "x": 100, "y": 100, "width": 200, "height": 0, "points": [[0, 0], [200, 0]]}
-```
-
-## Colors
-
-- Blue: `#a5d8ff` (bg), `#339af0` (stroke)
-- Green: `#b2f2bb` (bg), `#2f9e44` (stroke)
-- Yellow: `#ffec99` (bg), `#f08c00` (stroke)
-- Red: `#ffc9c9` (bg), `#e03131` (stroke)
-- Purple: `#d0bfff` (bg), `#6741d9` (stroke)
-- Gray: `#dee2e6` (bg), `#495057` (stroke)
-
-## Mermaid Diagrams
-
-Pass `mermaid` instead of `elements` to auto-generate a diagram:
+## Elements
 
 ```json
-{
-  "board_id": "<id>",
-  "secret": "<secret>",
-  "mermaid": "graph LR\n  A[Input] --> B[Process]\n  B --> C[Output]"
-}
+{"type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 80, "backgroundColor": "#a5d8ff"}
+{"type": "ellipse", "x": 100, "y": 100, "width": 120, "height": 120, "backgroundColor": "#b2f2bb"}
+{"type": "diamond", "x": 100, "y": 100, "width": 140, "height": 100, "backgroundColor": "#ffec99"}
+{"type": "text", "x": 100, "y": 100, "text": "Hello", "fontSize": 20}
+{"type": "arrow", "x": 100, "y": 180, "width": 0, "height": 80, "points": [[0,0],[0,80]]}
 ```
 
-## Board Reuse
+Colors: `#a5d8ff` blue, `#b2f2bb` green, `#ffec99` yellow, `#ffc9c9` red, `#d0bfff` purple, `#dee2e6` grey
 
-- **Don't create a new board every time.** If you already have a board_id and secret from a previous call, reuse it.
-- Use `clear_board` to wipe and redraw on the same board.
-- Only create a new board for a genuinely new topic.
+## Mermaid (max 8 nodes!)
 
-## CRITICAL: Mermaid vs Direct Elements
+Only for simple linear flows. For anything complex, use direct elements.
 
-> **Use mermaid ONLY for simple flows with max 8 nodes.** For anything more complex, use direct elements with manual x,y positioning. The auto-layout cannot handle complex graphs cleanly.
+```json
+{"mermaid": "flowchart TD\n  A[Start] --> B{OK?}\n  B -->|Yes| C[Done]\n  B -->|No| D[Retry]"}
+```
 
-**Use mermaid** when:
-- Linear flow with 4-8 nodes
-- At most 1 decision branch (Yes/No)
-- No loops back to earlier nodes
+## Complex Diagrams: Use Direct Elements
 
-**Use direct elements** when:
-- More than 8 nodes
-- Multiple branches or decision points
-- Loops or back-edges
-- Architecture diagrams, dashboards, or anything needing precise layout
+Lay it out yourself — main path at x=300 going down, branches to the right at x=600:
 
-When using direct elements for a flowchart, lay it out yourself:
-- Main path goes straight down, center column at x=300
-- "Yes" branches continue down
-- "No" branches go to the right (x=600)
-- Use arrows to connect: `points: [[0,0],[0,120]]` for down, `[[0,0],[200,0]]` for right
-
-## Layout Tips
-
-- Start at `x: 100, y: 100`
-- Space elements ~250px apart horizontally, ~120px vertically
-- For text inside shapes: offset `x + 15, y + 15` from shape position
-- Use consistent widths (200-220px) for flowchart nodes
-- Add all elements in one `add_elements` call for performance
+```json
+[
+  {"type":"rectangle","x":200,"y":100,"width":220,"height":60,"backgroundColor":"#a5d8ff"},
+  {"type":"text","x":230,"y":115,"text":"Step 1","fontSize":18},
+  {"type":"arrow","x":310,"y":160,"width":0,"height":60,"points":[[0,0],[0,60]]},
+  {"type":"diamond","x":210,"y":230,"width":200,"height":100,"backgroundColor":"#ffec99"},
+  {"type":"text","x":270,"y":265,"text":"OK?","fontSize":16},
+  {"type":"arrow","x":310,"y":330,"width":0,"height":60,"points":[[0,0],[0,60]]},
+  {"type":"rectangle","x":200,"y":400,"width":220,"height":60,"backgroundColor":"#b2f2bb"},
+  {"type":"text","x":230,"y":415,"text":"Done","fontSize":18}
+]
+```
 
 ## Security
 
-- `create_board` returns a `secret` - store it, you need it for writes
-- All write tools (`add_elements`, `clear_board`) require the `secret`
-- `get_board` is public - anyone with the board_id can view
-- Board URLs are public read-only
+- All writes require `secret` from `create_board`
+- `get_board` is public (view-only)
 - Boards expire 7 days after last edit
