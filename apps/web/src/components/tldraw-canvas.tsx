@@ -8,6 +8,7 @@ import {
   createTLStore,
   getSnapshot,
   loadSnapshot,
+  toRichText,
 } from "tldraw";
 
 const TLDRAW_CSS = "https://esm.sh/tldraw@3.15.6/tldraw.css";
@@ -76,7 +77,7 @@ function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
         x: el.x,
         y: el.y,
         props: {
-          text: el.text ?? "",
+          richText: toRichText(el.text ?? ""),
           color,
           size: (el.fontSize ?? 20) > 24 ? "l" : (el.fontSize ?? 20) > 16 ? "m" : "s",
         },
@@ -100,6 +101,22 @@ function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
   }
 }
 
+function isSimpleElements(data: string): SimpleElement[] | null {
+  try {
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type) return parsed;
+  } catch {}
+  return null;
+}
+
+function isTldrawSnapshot(data: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(data);
+    if (parsed.document || parsed.store) return parsed;
+  } catch {}
+  return null;
+}
+
 interface TldrawCanvasProps {
   boardId: Id<"boards">;
 }
@@ -116,14 +133,12 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedHashRef = useRef("");
   const initialLoadDone = useRef(false);
+  const hasUserEdited = useRef(false);
 
   // Load tldraw CSS
   useEffect(() => {
     const existing = document.querySelector(`link[href="${TLDRAW_CSS}"]`);
-    if (existing) {
-      setCssLoaded(true);
-      return;
-    }
+    if (existing) { setCssLoaded(true); return; }
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = TLDRAW_CSS;
@@ -131,85 +146,71 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
     document.head.appendChild(link);
   }, []);
 
-  // Load initial data into store when board arrives
+  // Load initial snapshot data into store
   useEffect(() => {
     if (!board || initialLoadDone.current) return;
     initialLoadDone.current = true;
 
-    try {
-      const data = board.elements;
-      if (data && data !== "[]") {
-        const parsed = JSON.parse(data);
-        if (parsed.document || parsed.store) {
-          suppressSaveRef.current = true;
-          loadSnapshot(store, parsed);
-          lastSavedHashRef.current = data;
-          suppressSaveRef.current = false;
-        }
-        // Simple elements will be converted in onMount
-      }
-    } catch {
-      // ignore
+    const snapshot = isTldrawSnapshot(board.elements);
+    if (snapshot) {
+      try {
+        suppressSaveRef.current = true;
+        loadSnapshot(store, snapshot as Parameters<typeof loadSnapshot>[1]);
+        lastSavedHashRef.current = board.elements;
+        suppressSaveRef.current = false;
+      } catch { suppressSaveRef.current = false; }
     }
+    // Simple elements are converted in onMount (needs editor)
 
     setReady(true);
   }, [board, store]);
 
-  // Listen for remote changes
+  // Listen for remote changes (MCP adds elements while page is open)
   useEffect(() => {
     if (!board || !editorRef.current || !initialLoadDone.current) return;
-
     const remoteData = board.elements;
     if (remoteData === lastSavedHashRef.current) return;
 
-    try {
-      const parsed = JSON.parse(remoteData);
-      suppressSaveRef.current = true;
+    const snapshot = isTldrawSnapshot(remoteData);
+    const simpleEls = isSimpleElements(remoteData);
 
-      if (parsed.document || parsed.store) {
-        loadSnapshot(store, parsed);
-      } else if (Array.isArray(parsed) && parsed.length > 0) {
+    suppressSaveRef.current = true;
+
+    try {
+      if (snapshot) {
+        loadSnapshot(store, snapshot as Parameters<typeof loadSnapshot>[1]);
+      } else if (simpleEls) {
+        // MCP added new simple elements - clear and recreate
         const ids = editorRef.current.getCurrentPageShapeIds();
         if (ids.size > 0) editorRef.current.deleteShapes([...ids]);
-        convertSimpleToTldraw(editorRef.current, parsed as SimpleElement[]);
+        convertSimpleToTldraw(editorRef.current, simpleEls);
       }
-
       lastSavedHashRef.current = remoteData;
-      requestAnimationFrame(() => { suppressSaveRef.current = false; });
-    } catch {
-      suppressSaveRef.current = false;
-    }
+    } catch {}
+
+    requestAnimationFrame(() => { suppressSaveRef.current = false; });
   }, [board, store]);
 
   const handleMount = useCallback((editor: Editor) => {
     editorRef.current = editor;
 
-    // Convert simple elements if needed
+    // Convert simple elements on mount (first load only)
     if (board) {
-      try {
-        const parsed = JSON.parse(board.elements);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          suppressSaveRef.current = true;
-          convertSimpleToTldraw(editor, parsed as SimpleElement[]);
-
-          // Save as tldraw snapshot
-          setTimeout(() => {
-            const snapshot = getSnapshot(store);
-            const str = JSON.stringify(snapshot);
-            lastSavedHashRef.current = str;
-            updateBoard({ id: boardId, elements: str }).finally(() => {
-              suppressSaveRef.current = false;
-            });
-          }, 300);
-        }
-      } catch {
-        suppressSaveRef.current = false;
+      const simpleEls = isSimpleElements(board.elements);
+      if (simpleEls) {
+        suppressSaveRef.current = true;
+        convertSimpleToTldraw(editor, simpleEls);
+        // DON'T auto-save the snapshot - keep simple elements in Convex
+        // The first user edit will save the tldraw snapshot
+        lastSavedHashRef.current = board.elements;
+        requestAnimationFrame(() => { suppressSaveRef.current = false; });
       }
     }
 
-    // Save on changes
+    // Save on user edits only
     const cleanup = store.listen(() => {
       if (suppressSaveRef.current) return;
+      hasUserEdited.current = true;
 
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
