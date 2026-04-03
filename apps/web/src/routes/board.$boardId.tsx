@@ -126,12 +126,9 @@ function BoardPage() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {board.createdAt && (
-            <span className="hidden items-center gap-1 text-[10px] text-muted-foreground/60 sm:flex">
-              <Clock className="h-3 w-3" />
-              Expires in {Math.max(1, Math.ceil((board.createdAt + 7 * 86400000 - Date.now()) / 86400000))}d
-            </span>
-          )}
+          <span className="hidden items-center gap-1 text-[10px] text-muted-foreground/40 sm:flex" title="Boards expire 7 days after last edit">
+            {Math.max(1, Math.ceil((board.lastModified + 7 * 86400000 - Date.now()) / 86400000))}d left
+          </span>
           <Button
             variant="ghost"
             size="sm"
