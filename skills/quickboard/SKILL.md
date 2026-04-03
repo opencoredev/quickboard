@@ -84,18 +84,30 @@ Pass `mermaid` instead of `elements` to auto-generate a diagram:
 }
 ```
 
+## Board Reuse
+
+- **Don't create a new board every time.** If you already have a board_id and secret from a previous call, reuse it.
+- Use `clear_board` to wipe and redraw on the same board.
+- Only create a new board for a genuinely new topic.
+
 ## Layout Tips
 
 - Start at `x: 100, y: 100`
-- Space elements ~250px apart horizontally, ~150px vertically
-- For text inside shapes: offset `x + 10, y + 15` from shape position
-- Use consistent widths (180-200px) for flowchart nodes
+- Space elements ~250px apart horizontally, ~120px vertically
+- For text inside shapes: offset `x + 15, y + 15` from shape position
+- Use consistent widths (200-220px) for flowchart nodes
 - Add all elements in one `add_elements` call for performance
+- For complex diagrams, use direct elements (not mermaid) - you get full control over positioning
+
+## When to Use Mermaid vs Direct Elements
+
+- **Use mermaid** for simple linear flows (5-8 nodes, minimal branching)
+- **Use direct elements** for anything complex - dashboards, architecture diagrams, detailed flowcharts. You control the exact position of every shape.
 
 ## Security
 
-- `create_board` returns a `secret` - store it
+- `create_board` returns a `secret` - store it, you need it for writes
 - All write tools (`add_elements`, `clear_board`) require the `secret`
 - `get_board` is public - anyone with the board_id can view
-- Board URLs are public read-only (users can view but not edit via MCP without the secret)
+- Board URLs are public read-only
 - Boards expire 7 days after last edit
