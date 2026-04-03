@@ -1,164 +1,247 @@
-import { api } from "@quickboard/backend/convex/_generated/api";
 import { Button } from "@quickboard/ui/components/button";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { createFileRoute } from "@tanstack/react-router";
 import {
-  ArrowRight,
+  Check,
   Clock,
+  Copy,
   LayoutDashboard,
-  Plus,
   Sparkles,
-  Trash2,
+  Terminal,
   Zap,
 } from "lucide-react";
+import { useCallback, useState } from "react";
 import Header from "../components/header";
 
 export const Route = createFileRoute("/")({
   component: HomeComponent,
 });
 
+const MCP_URL = "https://courteous-rabbit-357.convex.site/mcp";
+
+const SETUP_PROMPT = `Set up the QuickBoard MCP server for me. Add the following to my MCP configuration:
+
+Server name: quickboard
+URL: ${MCP_URL}
+
+This gives you tools to create whiteboards, add shapes/text/diagrams, and share live board URLs. Create a board and draw something on it to verify it works.`;
+
+const CURSOR_CONFIG = `{
+  "mcpServers": {
+    "quickboard": {
+      "url": "${MCP_URL}"
+    }
+  }
+}`;
+
+const CLAUDE_CODE_CONFIG = `claude mcp add quickboard --transport http ${MCP_URL}`;
+
+const CODEX_CONFIG = `{
+  "mcpServers": {
+    "quickboard": {
+      "url": "${MCP_URL}"
+    }
+  }
+}`;
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [text]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleCopy}
+      className="h-7 gap-1.5 text-xs text-muted-foreground"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3" />
+          Copied
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" />
+          {label}
+        </>
+      )}
+    </Button>
+  );
+}
+
 function HomeComponent() {
-  const boards = useQuery(api.boards.list);
-  const createBoard = useMutation(api.boards.create);
-  const deleteBoard = useMutation(api.boards.remove);
-  const navigate = useNavigate();
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  const handleCreate = async () => {
-    const id = await createBoard({ title: "Untitled Board" });
-    navigate({ to: "/board/$boardId", params: { boardId: id } });
-  };
-
-  const handleDelete = async (
-    e: React.MouseEvent,
-    id: string,
-  ) => {
-    e.stopPropagation();
-    e.preventDefault();
-    await deleteBoard({ id: id as never });
-  };
-
-  const formatDate = (ts: number) => {
-    const d = new Date(ts);
-    const now = new Date();
-    const diff = now.getTime() - d.getTime();
-    if (diff < 60000) return "Just now";
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return d.toLocaleDateString();
-  };
+  const handleCopyPrompt = useCallback(() => {
+    navigator.clipboard.writeText(SETUP_PROMPT);
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2500);
+  }, []);
 
   return (
     <div className="flex min-h-svh flex-col">
       <Header />
       <main className="flex-1">
-        <div className="mx-auto max-w-4xl px-4 py-12">
-          <div className="mb-12 text-center">
+        <div className="mx-auto max-w-3xl px-4 py-16">
+          {/* Hero */}
+          <div className="mb-16 text-center">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-sm text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5" />
               AI-powered whiteboards via MCP
             </div>
-            <h1 className="mb-3 text-4xl font-bold tracking-tight">
+            <h1 className="mb-4 text-5xl font-bold tracking-tight">
               QuickBoard
             </h1>
-            <p className="mx-auto max-w-lg text-lg text-muted-foreground">
-              Instant whiteboards that AI agents can draw on.
-              Create a board, share the MCP endpoint, and watch your
-              agent build diagrams in real-time.
+            <p className="mx-auto max-w-md text-base text-muted-foreground">
+              Give your AI agent a whiteboard. One MCP endpoint, real-time
+              canvas. Boards auto-delete after 7 days.
             </p>
           </div>
 
-          <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* Quick setup prompt */}
+          <div className="mb-12 rounded-xl border border-border bg-card p-6">
+            <div className="mb-4 flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-chart-2" />
+              <h2 className="text-lg font-semibold">Quick Setup</h2>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Paste this prompt into your AI agent and it will configure
+              everything for you.
+            </p>
+            <div className="relative rounded-lg border border-border bg-background p-4">
+              <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground/80">
+                {SETUP_PROMPT}
+              </pre>
+              <div className="mt-3 flex justify-end">
+                <Button
+                  onClick={handleCopyPrompt}
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  {copiedPrompt ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy Prompt
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Manual setup guides */}
+          <div className="mb-12">
+            <h2 className="mb-6 text-lg font-semibold">Manual Setup</h2>
+            <div className="space-y-4">
+              {/* Claude Code */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold">
+                      C
+                    </div>
+                    <h3 className="text-sm font-semibold">Claude Code</h3>
+                  </div>
+                  <CopyButton text={CLAUDE_CODE_CONFIG} label="Copy" />
+                </div>
+                <div className="rounded-lg border border-border bg-background p-3">
+                  <code className="font-mono text-xs text-foreground/80">
+                    {CLAUDE_CODE_CONFIG}
+                  </code>
+                </div>
+              </div>
+
+              {/* Cursor */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold">
+                      {"{ }"}
+                    </div>
+                    <h3 className="text-sm font-semibold">Cursor</h3>
+                  </div>
+                  <CopyButton text={CURSOR_CONFIG} label="Copy" />
+                </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Add to <code className="rounded bg-accent px-1 py-0.5 font-mono text-[11px]">.cursor/mcp.json</code>
+                </p>
+                <div className="rounded-lg border border-border bg-background p-3">
+                  <pre className="font-mono text-xs text-foreground/80">
+                    {CURSOR_CONFIG}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Codex */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold">
+                      {">>"}
+                    </div>
+                    <h3 className="text-sm font-semibold">Codex / Other</h3>
+                  </div>
+                  <CopyButton text={CODEX_CONFIG} label="Copy" />
+                </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Add to your MCP config file
+                </p>
+                <div className="rounded-lg border border-border bg-background p-3">
+                  <pre className="font-mono text-xs text-foreground/80">
+                    {CODEX_CONFIG}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Features */}
+          <div className="mb-12 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-border bg-card p-4">
               <Zap className="mb-2 h-5 w-5 text-chart-1" />
-              <h3 className="text-sm font-medium">Instant</h3>
+              <h3 className="text-sm font-medium">Real-time</h3>
               <p className="text-xs text-muted-foreground">
-                No sign-up. Create a board in one click.
+                Agent draws, you see it live. Cross-tab sync.
               </p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
               <LayoutDashboard className="mb-2 h-5 w-5 text-chart-2" />
-              <h3 className="text-sm font-medium">MCP Endpoint</h3>
+              <h3 className="text-sm font-medium">Full Canvas</h3>
               <p className="text-xs text-muted-foreground">
-                One URL. Your agent draws, you watch live.
+                Shapes, text, arrows, freehand, mermaid diagrams.
               </p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
               <Clock className="mb-2 h-5 w-5 text-chart-3" />
               <h3 className="text-sm font-medium">Auto-cleanup</h3>
               <p className="text-xs text-muted-foreground">
-                Boards auto-delete after 3 days.
+                Boards auto-delete after 7 days.
               </p>
             </div>
           </div>
 
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Your Boards</h2>
-            <Button onClick={handleCreate} size="sm">
-              <Plus className="mr-1.5 h-4 w-4" />
-              New Board
-            </Button>
+          {/* MCP Endpoint */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">MCP Endpoint</h3>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {MCP_URL}
+                </p>
+              </div>
+              <CopyButton text={MCP_URL} label="Copy URL" />
+            </div>
           </div>
-
-          {!boards ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-32 animate-pulse rounded-xl border border-border bg-card"
-                />
-              ))}
-            </div>
-          ) : boards.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border py-16 text-center">
-              <LayoutDashboard className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-              <p className="mb-1 text-sm font-medium">No boards yet</p>
-              <p className="mb-4 text-xs text-muted-foreground">
-                Create your first board to get started
-              </p>
-              <Button onClick={handleCreate} size="sm" variant="outline">
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Create Board
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {boards.map((board) => {
-                const elementCount = JSON.parse(board.elements).length;
-                return (
-                  <button
-                    key={board._id}
-                    onClick={() =>
-                      navigate({
-                        to: "/board/$boardId",
-                        params: { boardId: board._id },
-                      })
-                    }
-                    className="group relative rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-ring hover:shadow-md"
-                  >
-                    <div className="mb-3 flex items-start justify-between">
-                      <h3 className="truncate text-sm font-medium pr-6">
-                        {board.title}
-                      </h3>
-                      <button
-                        onClick={(e) => handleDelete(e, board._id)}
-                        className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{elementCount} elements</span>
-                      <span>{formatDate(board.lastModified)}</span>
-                    </div>
-                    <div className="mt-2 flex items-center text-xs text-chart-2 opacity-0 transition-opacity group-hover:opacity-100">
-                      Open board
-                      <ArrowRight className="ml-1 h-3 w-3" />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       </main>
     </div>

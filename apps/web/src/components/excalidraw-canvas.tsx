@@ -15,11 +15,10 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
   const excalidrawRef = useRef<unknown>(null);
   const [initialized, setInitialized] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedRef = useRef<string>("[]");
-  const isApplyingRemoteRef = useRef(false);
+  const lastSavedVersionRef = useRef(0);
+  const pendingSaveRef = useRef(false);
   const [isDark, setIsDark] = useState(true);
 
-  // Load Excalidraw only on client side (CSS + JS)
   useEffect(() => {
     Promise.all([
       import("@excalidraw/excalidraw"),
@@ -29,7 +28,6 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
     });
   }, []);
 
-  // Watch for theme changes
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
     const observer = new MutationObserver(() => {
@@ -42,83 +40,73 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
     return () => observer.disconnect();
   }, []);
 
-  // Sync remote changes (from MCP or other users) into Excalidraw
+  // Sync remote changes into Excalidraw
   useEffect(() => {
     if (!board || !initialized || !excalidrawRef.current) return;
-
-    const remoteElements = board.elements;
-
-    // Skip if we already have this state
-    if (remoteElements === lastSavedRef.current) return;
-
-    // Remote state differs from what we last saved — apply it
-    // Cancel any pending save to prevent overwriting
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
+    // Skip updates that came from our own saves
+    if (board.lastModified <= lastSavedVersionRef.current) return;
+    // Don't overwrite while a local save is pending
+    if (pendingSaveRef.current) return;
 
     try {
-      const parsed = JSON.parse(remoteElements);
-      isApplyingRemoteRef.current = true;
+      const parsed = JSON.parse(board.elements);
       const excalidrawApi = excalidrawRef.current as {
+        getSceneElements: () => readonly unknown[];
         updateScene: (scene: { elements: unknown[] }) => void;
       };
-      excalidrawApi.updateScene({ elements: parsed });
-      lastSavedRef.current = remoteElements;
-      // Allow a brief delay for the onChange triggered by updateScene to be ignored
-      requestAnimationFrame(() => {
-        isApplyingRemoteRef.current = false;
-      });
+
+      // Merge: keep local in-progress elements (being drawn), apply remote for everything else
+      const localElements = excalidrawApi.getSceneElements();
+      const remoteIds = new Set(parsed.map((el: { id: string }) => el.id));
+      const localOnly = localElements.filter(
+        (el) => !(el as { id: string; isDeleted?: boolean }).isDeleted &&
+                !remoteIds.has((el as { id: string }).id),
+      );
+
+      excalidrawApi.updateScene({ elements: [...parsed, ...localOnly] });
+      lastSavedVersionRef.current = board.lastModified;
     } catch {
-      isApplyingRemoteRef.current = false;
+      // ignore
     }
   }, [board, initialized]);
 
   const handleChange = useCallback(
-    (elements: readonly unknown[]) => {
+    (_elements: readonly unknown[]) => {
       if (!initialized) return;
-      // Ignore changes triggered by applying remote updates
-      if (isApplyingRemoteRef.current) return;
-
-      const serialized = JSON.stringify(
-        elements.filter(
-          (el) => !(el as { isDeleted?: boolean }).isDeleted,
-        ),
-      );
-
-      // No actual change from what we last saved
-      if (serialized === lastSavedRef.current) return;
 
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
 
+      pendingSaveRef.current = true;
+
       saveTimeoutRef.current = setTimeout(async () => {
-        // Re-capture current state at save time, not at onChange time
-        const api = excalidrawRef.current as {
+        const excalidrawApi = excalidrawRef.current as {
           getSceneElements: () => readonly unknown[];
         } | null;
-        if (!api) return;
+        if (!excalidrawApi) return;
 
-        const currentElements = api.getSceneElements();
+        const currentElements = excalidrawApi.getSceneElements();
         const toSave = JSON.stringify(
           currentElements.filter(
             (el) => !(el as { isDeleted?: boolean }).isDeleted,
           ),
         );
 
-        lastSavedRef.current = toSave;
-        await updateBoard({
-          id: boardId,
-          elements: toSave,
-        });
-      }, 800);
+        try {
+          await updateBoard({
+            id: boardId,
+            elements: toSave,
+          });
+          lastSavedVersionRef.current = Date.now();
+        } finally {
+          pendingSaveRef.current = false;
+        }
+      }, 200);
     },
     [boardId, updateBoard, initialized],
   );
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
@@ -146,7 +134,7 @@ export function ExcalidrawCanvas({ boardId }: ExcalidrawCanvasProps) {
     <ExcalidrawComp
       excalidrawAPI={(excalidrawApi: unknown) => {
         excalidrawRef.current = excalidrawApi;
-        lastSavedRef.current = board.elements;
+        lastSavedVersionRef.current = board.lastModified;
         setInitialized(true);
       }}
       initialData={{

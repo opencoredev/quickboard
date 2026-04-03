@@ -78,10 +78,10 @@ export const remove = mutation({
 
 export const deleteOldBoards = internalMutation({
   handler: async (ctx) => {
-    const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const oldBoards = await ctx.db
       .query("boards")
-      .withIndex("by_created", (q) => q.lt("createdAt", threeDaysAgo))
+      .withIndex("by_created", (q) => q.lt("createdAt", sevenDaysAgo))
       .collect();
     for (const board of oldBoards) {
       await ctx.db.delete(board._id);
