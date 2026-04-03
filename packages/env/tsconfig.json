@@ -1,0 +1,3 @@
+{
+  "extends": "@quickboard/config/tsconfig.base.json"
+}
