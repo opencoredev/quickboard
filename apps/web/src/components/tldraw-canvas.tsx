@@ -13,7 +13,6 @@ import {
 } from "tldraw";
 
 interface SimpleElement {
-  id: string;
   type: string;
   x: number;
   y: number;
@@ -23,11 +22,10 @@ interface SimpleElement {
   fontSize?: number;
   strokeColor?: string;
   backgroundColor?: string;
-  strokeWidth?: number;
   points?: number[][];
 }
 
-const COLOR_MAP: Record<string, string> = {
+const COLOR_MAP: Record<string, TLDefaultColorStyle> = {
   "#1e1e1e": "black",
   "#e03131": "red",
   "#2f9e44": "green",
@@ -42,12 +40,12 @@ const COLOR_MAP: Record<string, string> = {
   "#868e96": "grey",
 };
 
-function closestColor(hex: string): TLDefaultColorStyle {
+function mapColor(hex?: string): TLDefaultColorStyle {
   if (!hex || hex === "transparent") return "black";
-  return (COLOR_MAP[hex.toLowerCase()] ?? "black") as TLDefaultColorStyle;
+  return COLOR_MAP[hex.toLowerCase()] ?? "black";
 }
 
-function closestFillColor(hex: string): TLDefaultColorStyle {
+function mapFillColor(hex?: string): TLDefaultColorStyle {
   if (!hex || hex === "transparent") return "blue";
   const h = hex.toLowerCase();
   if (h.includes("d8ff") || h.includes("a5d8")) return "blue";
@@ -55,92 +53,56 @@ function closestFillColor(hex: string): TLDefaultColorStyle {
   if (h.includes("ec99") || h.includes("ffec")) return "yellow";
   if (h.includes("c9c9") || h.includes("ffc9")) return "red";
   if (h.includes("bfff") || h.includes("d0bf")) return "violet";
-  if (h.includes("dee2") || h.includes("f8f9")) return "grey";
-  return (COLOR_MAP[h] ?? "blue") as TLDefaultColorStyle;
+  return COLOR_MAP[h] ?? "blue";
 }
 
-function convertSimpleToTldrawShapes(editor: Editor, elements: SimpleElement[]) {
+function convertSimpleToTldraw(editor: Editor, elements: SimpleElement[]) {
   const shapes: Parameters<Editor["createShapes"]>[0] = [];
 
   for (const el of elements) {
-    const baseColor = closestColor(el.strokeColor ?? "#1e1e1e");
-    const fillColor = closestFillColor(el.backgroundColor ?? "transparent");
+    const color = mapColor(el.strokeColor);
     const hasFill = el.backgroundColor && el.backgroundColor !== "transparent";
 
-    switch (el.type) {
-      case "rectangle":
-      case "ellipse":
-      case "diamond": {
-        const geoMap: Record<string, string> = {
-          rectangle: "rectangle",
-          ellipse: "ellipse",
-          diamond: "diamond",
-        };
-        shapes.push({
-          type: "geo",
-          x: el.x,
-          y: el.y,
-          props: {
-            geo: geoMap[el.type] as "rectangle" | "ellipse" | "diamond",
-            w: el.width ?? 100,
-            h: el.height ?? 100,
-            color: hasFill ? fillColor : baseColor,
-            fill: hasFill ? "solid" : "none",
-            size: "m",
-          },
-        });
-        break;
-      }
-
-      case "text": {
-        shapes.push({
-          type: "text",
-          x: el.x,
-          y: el.y,
-          props: {
-            richText: toRichText(el.text ?? ""),
-            color: baseColor,
-            size: (el.fontSize ?? 20) > 24 ? "l" : (el.fontSize ?? 20) > 16 ? "m" : "s",
-          },
-        });
-        break;
-      }
-
-      case "arrow": {
-        const pts = el.points ?? [[0, 0], [el.width ?? 100, el.height ?? 0]];
-        const endPt = pts[pts.length - 1] ?? [100, 0];
-        shapes.push({
-          type: "arrow",
-          x: el.x,
-          y: el.y,
-          props: {
-            start: { x: 0, y: 0 },
-            end: { x: endPt[0] ?? 100, y: endPt[1] ?? 0 },
-            color: baseColor,
-            size: "m",
-          },
-        });
-        break;
-      }
-
-      case "line": {
-        const linePts = el.points ?? [[0, 0], [el.width ?? 100, el.height ?? 0]];
-        const lineEnd = linePts[linePts.length - 1] ?? [100, 0];
-        // Use arrow without arrowhead for lines
-        shapes.push({
-          type: "arrow",
-          x: el.x,
-          y: el.y,
-          props: {
-            start: { x: 0, y: 0 },
-            end: { x: lineEnd[0] ?? 100, y: lineEnd[1] ?? 0 },
-            color: baseColor,
-            size: "m",
-            arrowheadEnd: "none",
-          },
-        });
-        break;
-      }
+    if (el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond") {
+      shapes.push({
+        type: "geo",
+        x: el.x,
+        y: el.y,
+        props: {
+          geo: el.type as "rectangle" | "ellipse" | "diamond",
+          w: el.width ?? 100,
+          h: el.height ?? 100,
+          color: hasFill ? mapFillColor(el.backgroundColor) : color,
+          fill: hasFill ? "solid" : "none",
+          size: "m",
+        },
+      });
+    } else if (el.type === "text") {
+      shapes.push({
+        type: "text",
+        x: el.x,
+        y: el.y,
+        props: {
+          richText: toRichText(el.text ?? ""),
+          color,
+          size: (el.fontSize ?? 20) > 24 ? "l" : (el.fontSize ?? 20) > 16 ? "m" : "s",
+        },
+      });
+    } else if (el.type === "arrow" || el.type === "line") {
+      const pts = el.points ?? [[0, 0], [el.width ?? 100, el.height ?? 0]];
+      const end = pts[pts.length - 1] ?? [100, 0];
+      shapes.push({
+        type: "arrow",
+        x: el.x,
+        y: el.y,
+        props: {
+          start: { x: 0, y: 0 },
+          end: { x: end[0] ?? 100, y: end[1] ?? 0 },
+          color,
+          size: "m",
+          ...(el.type === "line" ? { arrowheadEnd: "none" as const } : {}),
+        },
+      });
     }
   }
 
@@ -158,12 +120,12 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
   const updateBoard = useMutation(api.boards.update);
 
   const [ready, setReady] = useState(false);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedVersionRef = useRef(0);
-  const pendingSaveRef = useRef(false);
   const editorRef = useRef<Editor | null>(null);
   const initializedRef = useRef(false);
   const boardDataRef = useRef<string>("[]");
+  const suppressSaveRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedHashRef = useRef("");
 
   // Track board data for onMount
   useEffect(() => {
@@ -178,23 +140,35 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
   // Listen for remote changes (from MCP or other tabs)
   useEffect(() => {
     if (!board || !initializedRef.current || !editorRef.current) return;
-    if (board.lastModified <= lastSavedVersionRef.current) return;
-    if (pendingSaveRef.current) return;
+
+    const remoteData = board.elements;
+
+    // Skip if this is data we just saved
+    if (remoteData === lastSavedHashRef.current) return;
 
     try {
-      const parsed = JSON.parse(board.elements);
+      const parsed = JSON.parse(remoteData);
+      suppressSaveRef.current = true;
+
       if (parsed.store) {
-        // tldraw snapshot - load it
-        const store = editorRef.current.store;
-        loadSnapshot(store, parsed as TLStoreSnapshot);
+        loadSnapshot(editorRef.current.store, parsed as TLStoreSnapshot);
       } else if (Array.isArray(parsed) && parsed.length > 0) {
-        // Simple elements from MCP - convert and add
-        editorRef.current.selectAll().deleteShapes(editorRef.current.getSelectedShapeIds());
-        convertSimpleToTldrawShapes(editorRef.current, parsed as SimpleElement[]);
+        // Clear and recreate from simple elements
+        const ids = editorRef.current.getCurrentPageShapeIds();
+        if (ids.size > 0) {
+          editorRef.current.deleteShapes([...ids]);
+        }
+        convertSimpleToTldraw(editorRef.current, parsed as SimpleElement[]);
       }
-      lastSavedVersionRef.current = board.lastModified;
+
+      lastSavedHashRef.current = remoteData;
+
+      // Allow save listener to fire again after a tick
+      requestAnimationFrame(() => {
+        suppressSaveRef.current = false;
+      });
     } catch {
-      // ignore
+      suppressSaveRef.current = false;
     }
   }, [board]);
 
@@ -207,61 +181,57 @@ export function TldrawCanvas({ boardId }: TldrawCanvasProps) {
       const data = boardDataRef.current;
       if (data && data !== "[]") {
         const parsed = JSON.parse(data);
+        suppressSaveRef.current = true;
+
         if (parsed.store) {
           loadSnapshot(editor.store, parsed as TLStoreSnapshot);
         } else if (Array.isArray(parsed) && parsed.length > 0) {
-          convertSimpleToTldrawShapes(editor, parsed as SimpleElement[]);
-          // Save as tldraw snapshot for future loads
-          setTimeout(async () => {
-            const snapshot = getSnapshot(editor.store);
-            pendingSaveRef.current = true;
-            try {
-              await updateBoard({
-                id: boardId,
-                elements: JSON.stringify(snapshot),
-              });
-              lastSavedVersionRef.current = Date.now();
-            } finally {
-              pendingSaveRef.current = false;
-            }
-          }, 500);
+          convertSimpleToTldraw(editor, parsed as SimpleElement[]);
         }
+
+        // Save as tldraw snapshot so future loads are fast
+        const snapshot = getSnapshot(editor.store);
+        const snapshotStr = JSON.stringify(snapshot);
+        lastSavedHashRef.current = snapshotStr;
+
+        updateBoard({
+          id: boardId,
+          elements: snapshotStr,
+        }).then(() => {
+          suppressSaveRef.current = false;
+        });
+      } else {
+        suppressSaveRef.current = false;
       }
     } catch {
-      // ignore
+      suppressSaveRef.current = false;
     }
 
-    if (board) {
-      lastSavedVersionRef.current = board.lastModified;
-    }
-
-    // Listen for changes and save to Convex
+    // Listen for user edits and save to Convex
     const cleanup = editor.store.listen(() => {
+      if (suppressSaveRef.current) return;
+
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
 
-      pendingSaveRef.current = true;
-
       saveTimeoutRef.current = setTimeout(async () => {
-        try {
-          const snapshot = getSnapshot(editor.store);
-          await updateBoard({
-            id: boardId,
-            elements: JSON.stringify(snapshot),
-          });
-          lastSavedVersionRef.current = Date.now();
-        } finally {
-          pendingSaveRef.current = false;
-        }
-      }, 300);
+        if (suppressSaveRef.current) return;
+        const snapshot = getSnapshot(editor.store);
+        const snapshotStr = JSON.stringify(snapshot);
+        lastSavedHashRef.current = snapshotStr;
+        await updateBoard({
+          id: boardId,
+          elements: snapshotStr,
+        });
+      }, 500);
     });
 
     return () => {
       cleanup();
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [boardId, updateBoard, board]);
+  }, [boardId, updateBoard]);
 
   if (!board || !ready) {
     return (
